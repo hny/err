@@ -1,7 +1,7 @@
 ### Quick use:
 ```golang
 
-import Err "github.com/InkAndHumour/err"
+import Err "github.com/hny/err"
 
 func foo() Err.Err {
     err := ……
@@ -19,7 +19,7 @@ func foo() Err.Err {
 ### if you wangt to return the default error:
 ```golang
 
-import Err "github.com/InkAndHumour/err"
+import Err "github.com/hny/err"
 
 func foo() error {
     err := ……
