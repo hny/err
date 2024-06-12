@@ -4,70 +4,33 @@ import (
 	"fmt"
 )
 
-const (
-	// "incorrect params value" 参数值错误
-	ERR_PARAMS = "incorrect params value"
-	// "lack of necessary parameters" 必填参数不可为空
-	ERR_NECESSARY_PARAMS = "lack of necessary parameters"
-	// "item info not exist" 记录信息不存在
-	ERR_ITEM_NOT_EXIST = "item info not exist"
-	// "effect rows is 0" 操作影响数为 0
-	ERR_EFFECT_ROWS_0 = "effect rows is 0"
-
-	// 请勿重复请求
-	ERR_LIMIT_DUPLICATED_CODE = 10001
-	ERR_LIMIT_DUPLICATED_ZN   = "请勿重复请求"
-	// 请求去重校验失败
-	ERR_LIMIT_DUPLICATION_FAILED_CODE = 10002
-	ERR_LIMIT_DUPLICATION_FAILED_ZN   = "请求去重校验失败"
-
-	// 参数有误，请检查
-	ERR_INVALIDED_PARAMS_CODE = 10010
-	ERR_INVALIDED_PARAMS_ZN   = "参数有误，请检查"
-	// 记录已存在
-	ERR_ALREADY_EXIST_CODE = 10011
-	ERR_ALREADY_EXIST_ZN   = "记录已存在"
-
-	// 用户名或密码错误
-	ERR_INVALIDED_USERNAME_PASSWORD_CODE = 10020
-	ERR_INVALIDED_USERNAME_PASSWORD_ZN   = "用户名或密码错误"
-	// Token 无效
-	ERR_INVALIDED_TOKEN_CODE = 10021
-	ERR_INVALIDED_TOKEN_ZN   = "Token 无效"
-	// "仅支持系统管理员"
-	ERR_ONLY_FOR_ADMIN_CODE = 10022
-	ERR_ONLY_FOR_ADMIN_ZN   = "仅支持系统管理员"
-
-	// 内部系统错误
-	ERR_SYS_BUSY_CODE  = 50001
-	ERR_SYS_BUSY_ZN    = "系统繁忙请稍后"
-	ERR_SYS_INNER_CODE = 50010
-	ERR_SYS_INNER_ZN   = "服务异常，请稍后"
-)
-
 type Err interface {
-	// set or add error for debug
-	Err(cue string, detail ...interface{}) Err
-	// attach string: faield, to explain the call path
-	Failed(cue string) Err
-	// set or add context value for debug
-	Info(cue string, detail ...interface{}) Err
-	// set or add error code for front
+	// 设置 code 值，多次调用会覆盖；可以使用 GetCode() 获取，
+	// 会在打印 error 时一并打印出来;
 	Code(code uint32) Err
-	// set or add cue msg  for front
+	// 增加 error 信息，多次调用会追加至已存在的 error
+	Err(cue string, detail ...interface{}) Err
+	// 增加 error 信息 相当于调用 err.errs(cue+" failed")
+	Failed(cue string) Err
+	// 增加错误相关业务信息， 会在打印error时一并打印出来
+	Info(cue string, detail ...interface{}) Err
+	// 增加 Message 信息，多次调用会追加至已存在的 Message ；
+	// 可以使用 GetMsg() 获取，会在打印 error 时一并打印出来;
 	Msg(msg string) Err
-	// return full error detail for debug
-	Detail() error
-	GetMsg() string
+
+	// 获取 Code 值
 	GetCode() string
-	GetCodeUint32() uint32
+	// 获取 Code 值
 	GetCodeInt32() int32
+	// 获取 Code 值
+	GetCodeUint32() uint32
+	// 获取 Message 信息
+	GetMsg() string
 
+	// 实现 String 接口 打印结构体时会自动调用
+	String() string
+	// 实现 errsor 接口
 	Error() string
-}
-
-func New() Err {
-	return &errs{}
 }
 
 type errs struct {
@@ -76,85 +39,179 @@ type errs struct {
 	msg  string
 }
 
-func (e *errs) Error() string {
-	return fmt.Sprintf("{\"err\":\"%+v\",\"msg\":\"%v\",\"code\":\"%v\"}", e.err, e.msg, e.code)
+// 创建一个 Err 实例, cues 选填,
+// New("handle", "invalid params") 等同于 New().Err(handle,"invalid params")
+func New(cues ...interface{}) Err {
+	if len(cues) <= 0 {
+		return &errs{}
+	}
+
+	err := &errs{}
+
+	return err.Err(
+		fmt.Sprint(cues[0]), cues[1:]...,
+	)
 }
+
+// 增加 error 信息，多次调用会追加至已存在的 error
+func (e *errs) Err(
+	cue string, detail ...interface{},
+) Err {
+	if e.err != nil {
+		return e.add(cue, detail...)
+	}
+
+	return e.set(cue, detail...)
+}
+func (e *errs) add(
+	cue string, detail ...interface{},
+) Err {
+	if len(detail) == 0 {
+		return e.addSolo(cue)
+	}
+
+	return e.addMulti(cue, detail[0])
+}
+func (e *errs) addSolo(cue string) Err {
+	e.err = fmt.Errorf("%v; %v", cue, e.err)
+	return e
+}
+func (e *errs) addMulti(
+	cue string, detail interface{},
+) Err {
+	e.err = fmt.Errorf(
+		" %v err: %+v; %v ",
+		cue, detail, e.err,
+	)
+
+	return e
+}
+func (e *errs) set(
+	cue string, detail ...interface{},
+) Err {
+	if len(detail) == 0 {
+		return e.setSolo(cue)
+	}
+
+	return e.setMulti(cue, detail[0])
+}
+func (e *errs) setSolo(cue string) Err {
+	e.err = fmt.Errorf("%v;", cue)
+	return e
+}
+func (e *errs) setMulti(
+	cue string, detail interface{},
+) Err {
+	e.err = fmt.Errorf(
+		"%v err: %v;",
+		cue, detail,
+	)
+
+	return e
+}
+
+// 增加 error 信息 相当于调用 err.errs(cue+" failed")
+func (e *errs) Failed(cue string) Err {
+	return e.Err(
+		fmt.Sprintf("%v failed", cue),
+	)
+}
+
+// 增加错误相关业务信息， 会在打印error时一并打印出来
+func (e *errs) Info(
+	cue string, detail ...interface{},
+) Err {
+	if e.err != nil {
+		return e.addInfo(cue, detail)
+	}
+
+	return e.setInfo(cue, detail)
+}
+func (e *errs) setInfo(
+	cue string, detail interface{},
+) *errs {
+	e.err = fmt.Errorf("%v: %+v;", cue, detail)
+	return e
+}
+func (e *errs) addInfo(
+	cue string, detail interface{},
+) *errs {
+	e.err = fmt.Errorf(
+		"%v %v: %+v;",
+		e.err, cue, detail,
+	)
+
+	return e
+}
+
+// 设置 code 值，多次调用会覆盖；可以使用 GetCode() 获取，
+// 会在打印 error 时一并打印出来;
+func (e *errs) Code(code uint32) Err {
+	e.code = code
+
+	return e
+}
+
+// 增加 Message 信息，多次调用会追加至已存在的 Message ；
+// 可以使用 GetMsg() 获取，会在打印 error 时一并打印出来;
+func (e *errs) Msg(msg string) Err {
+	if e.msg == "" {
+		return e.setMsg(msg)
+	}
+
+	return e.addMsg(msg)
+}
+func (e *errs) setMsg(msg string) *errs {
+	e.msg = msg
+
+	return e
+}
+func (e *errs) addMsg(msg string) *errs {
+	e.msg = fmt.Sprintf("%s; %s", e.msg, msg)
+
+	return e
+}
+
+// 获取 Message 信息
 func (e *errs) GetMsg() string {
 	return fmt.Sprintf("%v", e.msg)
 }
 
+// 获取 Code 值
 func (e *errs) GetCode() string {
 	return fmt.Sprintf("%v", e.code)
 }
+
+// 获取 Code 值
 func (e *errs) GetCodeUint32() uint32 {
 	return e.code
 }
+
+// 获取 Code 值
 func (e *errs) GetCodeInt32() int32 {
 	return int32(e.code)
 }
 
-func (e *errs) Detail() error {
-	return fmt.Errorf("{\"err\":\"%+v\",\"msg\":\"%v\",\"code\":\"%v\"}", e.err, e.msg, e.code)
+// 实现 errsor 接口
+func (e *errs) Error() string {
+	return e.json()
 }
 
-func (e *errs) Err(cue string, detail ...interface{}) Err {
+// 实现 String 接口 打印结构体时会自动调用
+func (e *errs) String() string {
+	return e.json()
+}
+func (e *errs) json() string {
+	err := `"nil"`
 	if e.err != nil {
-		return e.add(cue, detail...)
+		err = "'" + e.err.Error() + "'"
 	}
-	return e.set(cue, detail...)
-}
 
-func (e *errs) Failed(cue string) Err {
-	return e.Err(fmt.Sprintf("%v failed", cue))
-}
-
-func (e *errs) set(cue string, detail ...interface{}) *errs {
-	if len(detail) == 0 {
-		return e.setSolo(cue)
-	}
-	return e.setMulti(cue, detail[0])
-}
-
-func (e *errs) setSolo(cue string) *errs {
-	e.err = fmt.Errorf("%v;", cue)
-	return e
-}
-
-func (e *errs) setMulti(cue string, detail interface{}) *errs {
-	e.err = fmt.Errorf("%v err: %v;", cue, detail)
-	return e
-}
-
-func (e *errs) add(cue string, detail ...interface{}) *errs {
-	if len(detail) == 0 {
-		return e.addSolo(cue)
-	}
-	return e.addMulti(cue, detail[0])
-}
-
-func (e *errs) addSolo(cue string) *errs {
-	e.err = fmt.Errorf("%v; %v", cue, e.err)
-	return e
-}
-
-func (e *errs) addMulti(cue string, detail interface{}) *errs {
-	e.err = fmt.Errorf(" %v err: %+v; %v ", cue, detail, e.err)
-	return e
-}
-
-func (e *errs) Info(cue string, detail ...interface{}) Err {
-	if e.err != nil {
-		return e.addInfo(cue, detail)
-	}
-	return e.setInfo(cue, detail)
-}
-
-func (e *errs) setInfo(cue string, detail interface{}) *errs {
-	e.err = fmt.Errorf("%v: %+v;", cue, detail)
-	return e
-}
-
-func (e *errs) addInfo(cue string, detail interface{}) *errs {
-	e.err = fmt.Errorf("%v %v: %+v;", e.err, cue, detail)
-	return e
+	return fmt.Sprint(
+		"{",
+		`"err": `, err, ",",
+		`"code": `, e.code, ",",
+		`"msg": "`, e.msg, `"`,
+		"}",
+	)
 }
